@@ -21,10 +21,9 @@ package org.ethereum.core;
 
 import co.rsk.panic.PanicProcessor;
 import co.rsk.remasc.RemascTransaction;
-import org.apache.commons.collections4.CollectionUtils;
-import org.ethereum.crypto.SHA3Helper;
 import co.rsk.trie.Trie;
 import co.rsk.trie.TrieImpl;
+import org.ethereum.crypto.SHA3Helper;
 import org.ethereum.util.ByteUtil;
 import org.ethereum.util.RLP;
 import org.ethereum.util.RLPElement;
@@ -35,8 +34,10 @@ import org.slf4j.LoggerFactory;
 import org.spongycastle.util.Arrays;
 import org.spongycastle.util.encoders.Hex;
 
+import javax.annotation.Nonnull;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -59,7 +60,7 @@ public class Block {
     private BlockHeader header;
 
     /* Transactions */
-    private List<Transaction> transactionsList = new CopyOnWriteArrayList<>();
+    private List<Transaction> transactionsList = Collections.emptyList();
 
     /* Uncles */
     private List<BlockHeader> uncleList = new CopyOnWriteArrayList<>();
@@ -165,19 +166,22 @@ public class Block {
                  long gasUsed, long timestamp,
                  byte[] extraData, byte[] mixHash, byte[] nonce,
                  List<Transaction> transactionsList, List<BlockHeader> uncleList, byte[] minimumGasPrice) {
-        this.header = new BlockHeader(parentHash, unclesHash, coinbase, logsBloom,
-                difficulty, number, gasLimit, gasUsed,
-                timestamp, extraData, minimumGasPrice, CollectionUtils.size(uncleList));
 
-        this.transactionsList = transactionsList;
-        if (this.transactionsList == null) {
-            this.transactionsList = new CopyOnWriteArrayList<>();
+        if (transactionsList == null) {
+            this.transactionsList = Collections.emptyList();
+        }
+        else {
+            this.transactionsList = Collections.unmodifiableList(transactionsList);
         }
 
         this.uncleList = uncleList;
         if (this.uncleList == null) {
             this.uncleList = new CopyOnWriteArrayList<>();
         }
+
+        this.header = new BlockHeader(parentHash, unclesHash, coinbase, logsBloom,
+                difficulty, number, gasLimit, gasUsed,
+                timestamp, extraData, minimumGasPrice, this.uncleList.size());
 
         this.parsed = true;
     }
@@ -206,8 +210,9 @@ public class Block {
         this.parsed = true;
     }
 
-    public void setTransactionsList(List<Transaction> transactionsList) {
-        this.transactionsList = transactionsList;
+    // TODO(mc) remove this method and create a new ExecutedBlock class or similar
+    public void setTransactionsList(@Nonnull List<Transaction> transactionsList) {
+        this.transactionsList = Collections.unmodifiableList(transactionsList);
         rlpEncoded = null;
     }
 
@@ -416,6 +421,8 @@ public class Block {
     }
 
     private void parseTxs(RLPList txTransactions) {
+        // TODO(mc) check if we can avoid copying existing transactions
+        ArrayList<Transaction> builder = new ArrayList<>(this.transactionsList);
 
         this.txsState = new TrieImpl();
         int txsStateIndex = 0;
@@ -427,10 +434,12 @@ public class Block {
                 // It is the remasc transaction
                 tx = new RemascTransaction(transactionRaw.getRLPData());
             }
-            this.transactionsList.add(tx);
+            builder.add(tx);
             this.txsState.put(RLP.encodeInt(txsStateIndex), transactionRaw.getRLPData());
             txsStateIndex++;
         }
+
+        this.transactionsList = Collections.unmodifiableList(builder);
     }
 
     private boolean isRemascTransaction(Transaction tx, int txPosition, int txsSize) {
